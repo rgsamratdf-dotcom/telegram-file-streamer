@@ -15,9 +15,9 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
-OWNER_ID = int(os.getenv("OWNER_ID"))
-RENDER_URL = os.getenv("RENDER_URL").rstrip("/")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", 0))
+OWNER_ID = int(os.getenv("OWNER_ID", 0))
+RENDER_URL = os.getenv("RENDER_URL", "").rstrip("/")
 
 # ==================== Database ====================
 conn = sqlite3.connect("database.db", check_same_thread=False)
@@ -56,16 +56,16 @@ app.add_middleware(
 async def start_handler(client: Client, message: Message):
     await message.reply_text(
         "হ্যালো! আমি Video Stream Bot।\n\n"
-        "চ্যানেলে কোনো ভিডিও আপলোড করলে আমি তোমাকে Direct Stream লিংক দিয়ে দিব।"
+        "চ্যানেলে বা আমাকে কোনো ভিডিও পাঠালে আমি Direct Stream লিংক দিয়ে দিব।"
     )
 
-@bot.on_message(filters.chat(CHANNEL_ID) & (filters.video | filters.document))
-async def handle_channel_post(client: Client, message: Message):
+# প্রাইভেট চ্যাটে বা চ্যানেলে যেকোনো ভিডিও পাঠালে লিংক জেনারেট করবে
+@bot.on_message((filters.private | filters.chat(CHANNEL_ID)) & (filters.video | filters.document))
+async def handle_media(client: Client, message: Message):
     media = message.video or message.document
     if not media:
         return
 
-    # শুধু ভিডিও ফাইল নেব
     if media.mime_type and not media.mime_type.startswith("video/"):
         return
 
@@ -82,18 +82,11 @@ async def handle_channel_post(client: Client, message: Message):
 
     stream_link = f"{RENDER_URL}/stream/{unique_id}.mp4"
 
-    # তোমাকে DM-এ লিংক পাঠাবে
-    try:
-        await bot.send_message(
-            OWNER_ID,
-            f"✅ নতুন ভিডিও সেভ হয়েছে!\n\n"
-            f"🔗 Direct Stream Link:\n`{stream_link}`\n\n"
-            f"এই লিংক Blogger-এ বসিয়ে স্ট্রিম করতে পারবে।"
-        )
-    except Exception as e:
-        print(f"DM পাঠাতে সমস্যা: {e}")
-
-    print(f"[SUCCESS] Link created: {stream_link}")
+    # রিপ্লাই হিসেবে লিংক পাঠাবে
+    await message.reply_text(
+        f"✅ **নতুন ভিডিও সেভ হয়েছে!**\n\n"
+        f"🔗 **Direct Stream Link:**\n`{stream_link}`"
+    )
 
 # ==================== Streaming Function ====================
 async def media_streamer(file_id: str, offset: int = 0):
@@ -101,9 +94,10 @@ async def media_streamer(file_id: str, offset: int = 0):
         yield chunk
 
 # ==================== FastAPI Routes ====================
+@app.get("/")
 @app.get("/ping")
 async def ping():
-    return {"status": "alive", "message": "Bot is running"}
+    return {"status": "alive", "message": "Bot is running perfectly"}
 
 @app.get("/stream/{unique_id}.mp4")
 async def stream_video(unique_id: str, request: Request):
@@ -150,7 +144,9 @@ async def start_services():
     await bot.start()
     print("Bot started successfully!")
     import uvicorn
-    config = uvicorn.Config(app, host="0.0.0.0", port=10000)
+    # Render Dynamic Port Fix
+    port = int(os.getenv("PORT", 10000))
+    config = uvicorn.Config(app, host="0.0.0.0", port=port)
     server = uvicorn.Server(config)
     await server.serve()
 
